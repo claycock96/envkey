@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on Keep a Changelog and the project aims to follow
 Semantic Versioning.
 
+## [0.2.0-beta.1](https://github.com/claycock96/envkey/compare/envkey-v0.1.0-beta.1...envkey-v0.2.0-beta.1) (2026-02-26)
+
+
+### Features
+
+* add global --identity flag and tilde-safe init paths ([#4](https://github.com/claycock96/envkey/issues/4)) ([52ac048](https://github.com/claycock96/envkey/commit/52ac048aa6a3af1685621d90563e146f4f4c124e))
+
 ## [Unreleased]
 
 ### Added
