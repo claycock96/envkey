@@ -5,31 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on Keep a Changelog and the project aims to follow
 Semantic Versioning.
 
-## [0.4.0-beta.1](https://github.com/claycock96/envkey/compare/v0.3.0-beta.1...v0.4.0-beta.1) (2026-02-26)
+## [0.4.0-beta.1](https://github.com/laycockc/envkey/compare/v0.3.0-beta.1...v0.4.0-beta.1) (2026-02-26)
 
 
 ### Features
 
-* add team member commands with admin auth and re-encryption ([#9](https://github.com/claycock96/envkey/issues/9)) ([28890a7](https://github.com/claycock96/envkey/commit/28890a70a381c155d383a667d7b56d43a2cb1b96))
+* add team member commands with admin auth and re-encryption ([#9](https://github.com/laycockc/envkey/issues/9)) ([28890a7](https://github.com/laycockc/envkey/commit/28890a70a381c155d383a667d7b56d43a2cb1b96))
 
-## [0.3.0-beta.1](https://github.com/claycock96/envkey/compare/v0.2.0-beta.1...v0.3.0-beta.1) (2026-02-26)
+## [0.3.0-beta.1](https://github.com/laycockc/envkey/compare/v0.2.0-beta.1...v0.3.0-beta.1) (2026-02-26)
 
 
 ### Features
 
-* add global --identity flag and tilde-safe init paths ([#4](https://github.com/claycock96/envkey/issues/4)) ([52ac048](https://github.com/claycock96/envkey/commit/52ac048aa6a3af1685621d90563e146f4f4c124e))
+* add global --identity flag and tilde-safe init paths ([#4](https://github.com/laycockc/envkey/issues/4)) ([52ac048](https://github.com/laycockc/envkey/commit/52ac048aa6a3af1685621d90563e146f4f4c124e))
 
 
 ### Bug Fixes
 
-* configure release-please to emit plain v* tags ([#7](https://github.com/claycock96/envkey/issues/7)) ([a037db5](https://github.com/claycock96/envkey/commit/a037db5f9771c6664ee5ee58f03bfdc699cce0e1))
+* configure release-please to emit plain v* tags ([#7](https://github.com/laycockc/envkey/issues/7)) ([a037db5](https://github.com/laycockc/envkey/commit/a037db5f9771c6664ee5ee58f03bfdc699cce0e1))
 
-## [0.2.0-beta.1](https://github.com/claycock96/envkey/compare/envkey-v0.1.0-beta.1...envkey-v0.2.0-beta.1) (2026-02-26)
+## [0.2.0-beta.1](https://github.com/laycockc/envkey/compare/envkey-v0.1.0-beta.1...envkey-v0.2.0-beta.1) (2026-02-26)
 
 
 ### Features
 
-* add global --identity flag and tilde-safe init paths ([#4](https://github.com/claycock96/envkey/issues/4)) ([52ac048](https://github.com/claycock96/envkey/commit/52ac048aa6a3af1685621d90563e146f4f4c124e))
+* add global --identity flag and tilde-safe init paths ([#4](https://github.com/laycockc/envkey/issues/4)) ([52ac048](https://github.com/laycockc/envkey/commit/52ac048aa6a3af1685621d90563e146f4f4c124e))
 
 ## [Unreleased]
 
