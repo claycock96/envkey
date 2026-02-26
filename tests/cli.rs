@@ -96,6 +96,24 @@ fn init_is_idempotent() {
 }
 
 #[test]
+fn init_on_existing_envkey_does_not_add_new_admin_by_username() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let alice_identity = temp.path().join("alice.age");
+    let bob_identity = temp.path().join("bob.age");
+
+    cmd_with_global_identity(&temp, &alice_identity, "alice").args(["init"]).assert().success();
+    cmd_with_global_identity(&temp, &bob_identity, "bob")
+        .args(["init"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(".envkey already exists"));
+
+    let file = read_envkey(&temp);
+    assert!(file.team.contains_key("alice"));
+    assert!(!file.team.contains_key("bob"));
+}
+
+#[test]
 fn init_without_override_uses_home_dot_envkey_identity() {
     let temp = tempfile::tempdir().expect("tempdir");
     let home = temp.path().join("home");

@@ -15,7 +15,7 @@ use crate::identity::{
     load_or_generate_identity, resolve_identity_path,
 };
 use crate::model::{EnvkeyFile, Role, SecretEntry, TeamMember};
-use crate::storage::{envkey_path, read_envkey, write_envkey_atomic};
+use crate::storage::{envkey_path, read_envkey, with_envkey_lock, write_envkey_atomic};
 
 #[derive(Debug, Parser)]
 #[command(name = "envkey", version, about = "Secrets without servers")]
@@ -124,16 +124,26 @@ fn cmd_member(command: MemberCommands, identity_override: Option<&Path>) -> Resu
 fn cmd_init(force: bool, identity_override: Option<&Path>) -> Result<()> {
     let cwd = env::current_dir()?;
     let envkey_path = envkey_path(&cwd);
-
-    if force && envkey_path.exists() {
-        return Err(EnvkeyError::message(
-            "--force is blocked when .envkey already exists; remove .envkey first in M1",
-        ));
-    }
-
     let identity_path = resolve_init_identity_path(identity_override)?;
     let (bundle, generated_identity) = load_or_generate_identity(&identity_path, force)?;
-    let username = detect_username();
+    let mut created_envkey = false;
+
+    with_envkey_lock(&envkey_path, || {
+        if force && envkey_path.exists() {
+            return Err(EnvkeyError::message(
+                "--force is blocked when .envkey already exists; remove .envkey first in M1",
+            ));
+        }
+
+        if !envkey_path.exists() {
+            let username = detect_username();
+            let file = EnvkeyFile::new(username, bundle.recipient.to_string(), now_date());
+            write_envkey_atomic(&envkey_path, &file)?;
+            created_envkey = true;
+        }
+
+        Ok(())
+    })?;
 
     if generated_identity {
         println!("✓ Generated identity key at {}", bundle.path.display());
@@ -141,27 +151,10 @@ fn cmd_init(force: bool, identity_override: Option<&Path>) -> Result<()> {
         println!("✓ Using existing identity key at {}", bundle.path.display());
     }
 
-    if envkey_path.exists() {
-        let mut file = read_envkey(&envkey_path)?;
-        if !file.team.contains_key(&username) {
-            file.team.insert(
-                username.clone(),
-                TeamMember {
-                    pubkey: bundle.recipient.to_string(),
-                    role: crate::model::Role::Admin,
-                    added: now_date(),
-                    environments: None,
-                },
-            );
-            write_envkey_atomic(&envkey_path, &file)?;
-            println!("✓ Added {username} as admin in existing .envkey");
-        } else {
-            println!("✓ .envkey already exists");
-        }
-    } else {
-        let file = EnvkeyFile::new(username.clone(), bundle.recipient.to_string(), now_date());
-        write_envkey_atomic(&envkey_path, &file)?;
+    if created_envkey {
         println!("✓ Created .envkey with you as admin");
+    } else {
+        println!("✓ .envkey already exists");
     }
 
     println!("✓ Public key: {}", bundle.recipient);
@@ -179,43 +172,44 @@ fn cmd_set(
 
     let cwd = env::current_dir()?;
     let envkey_path = envkey_path(&cwd);
-    if !envkey_path.exists() {
-        return Err(EnvkeyError::message(
-            "missing .envkey in current directory; run `envkey init` first",
-        ));
-    }
-
-    let mut file = read_envkey(&envkey_path)?;
     let identity_bundle = load_identity_from(&resolve_identity_path(identity_override)?)?;
-
-    let recipients = parse_recipients_from_team(&file)?;
-    if recipients.is_empty() {
-        return Err(EnvkeyError::message("no team recipients found in .envkey; cannot encrypt"));
-    }
-
     let secret: SecretString = value.into();
-    let encrypted = encrypt_value(secret.expose_secret(), &recipients)?;
+    let mut recipient_count = 0usize;
 
-    let set_by = detect_username();
-    file.default_env_mut().insert(
-        key.to_string(),
-        SecretEntry { value: encrypted, set_by, modified: now_timestamp() },
-    );
+    with_envkey_lock(&envkey_path, || {
+        if !envkey_path.exists() {
+            return Err(EnvkeyError::message(
+                "missing .envkey in current directory; run `envkey init` first",
+            ));
+        }
 
-    write_envkey_atomic(&envkey_path, &file)?;
+        let mut file = read_envkey(&envkey_path)?;
+        let recipients = parse_recipients_from_team(&file)?;
+        if recipients.is_empty() {
+            return Err(EnvkeyError::message(
+                "no team recipients found in .envkey; cannot encrypt",
+            ));
+        }
 
-    // Fast-fail if the current identity cannot decrypt what we just wrote.
-    let written = file
-        .default_env()
-        .and_then(|env| env.get(key))
-        .ok_or_else(|| EnvkeyError::message("internal error: secret missing after write"))?;
-    let _ = decrypt_value(&written.value, &identity_bundle.identity)?;
+        let encrypted = encrypt_value(secret.expose_secret(), &recipients)?;
+        let _ = decrypt_value(&encrypted, &identity_bundle.identity)?;
+        recipient_count = recipients.len();
+
+        let set_by = detect_username();
+        file.default_env_mut().insert(
+            key.to_string(),
+            SecretEntry { value: encrypted, set_by, modified: now_timestamp() },
+        );
+
+        write_envkey_atomic(&envkey_path, &file)?;
+        Ok(())
+    })?;
 
     println!(
         "✓ Encrypted {} for {} recipient{} ({})",
         key,
-        recipients.len(),
-        if recipients.len() == 1 { "" } else { "s" },
+        recipient_count,
+        if recipient_count == 1 { "" } else { "s" },
         env_name
     );
 
@@ -300,36 +294,40 @@ fn cmd_member_add(
 ) -> Result<()> {
     let cwd = env::current_dir()?;
     let envkey_path = envkey_path(&cwd);
-    if !envkey_path.exists() {
-        return Err(EnvkeyError::message(
-            "missing .envkey in current directory; run `envkey init` first",
-        ));
-    }
-
-    let mut file = read_envkey(&envkey_path)?;
     let identity_bundle = load_identity_from(&resolve_identity_path(identity_override)?)?;
-    require_admin_identity(&file, &identity_bundle.identity)?;
-
-    if file.team.contains_key(name) {
-        return Err(EnvkeyError::message(format!("team member already exists: {name}")));
-    }
-
     let recipient = x25519::Recipient::from_str(pubkey)
         .map_err(|err| EnvkeyError::message(format!("invalid age public key for {name}: {err}")))?;
+    let mut reencrypted = 0usize;
 
     let role_text = role_label(&role);
-    file.team.insert(
-        name.to_string(),
-        TeamMember {
-            pubkey: recipient.to_string(),
-            role: role.clone(),
-            added: now_date(),
-            environments: None,
-        },
-    );
+    with_envkey_lock(&envkey_path, || {
+        if !envkey_path.exists() {
+            return Err(EnvkeyError::message(
+                "missing .envkey in current directory; run `envkey init` first",
+            ));
+        }
 
-    let reencrypted = reencrypt_all_secrets(&mut file, &identity_bundle.identity)?;
-    write_envkey_atomic(&envkey_path, &file)?;
+        let mut file = read_envkey(&envkey_path)?;
+        require_admin_identity(&file, &identity_bundle.identity)?;
+
+        if file.team.contains_key(name) {
+            return Err(EnvkeyError::message(format!("team member already exists: {name}")));
+        }
+
+        file.team.insert(
+            name.to_string(),
+            TeamMember {
+                pubkey: recipient.to_string(),
+                role: role.clone(),
+                added: now_date(),
+                environments: None,
+            },
+        );
+
+        reencrypted = reencrypt_all_secrets(&mut file, &identity_bundle.identity)?;
+        write_envkey_atomic(&envkey_path, &file)?;
+        Ok(())
+    })?;
 
     println!(
         "✓ Added {} ({}) — re-encrypted {} secret{} in default",
@@ -344,31 +342,36 @@ fn cmd_member_add(
 fn cmd_member_rm(name: &str, yes: bool, identity_override: Option<&Path>) -> Result<()> {
     let cwd = env::current_dir()?;
     let envkey_path = envkey_path(&cwd);
-    if !envkey_path.exists() {
-        return Err(EnvkeyError::message(
-            "missing .envkey in current directory; run `envkey init` first",
-        ));
-    }
-
-    let mut file = read_envkey(&envkey_path)?;
     let identity_bundle = load_identity_from(&resolve_identity_path(identity_override)?)?;
-    let current_admin_name = require_admin_identity(&file, &identity_bundle.identity)?;
+    let mut reencrypted = 0usize;
 
-    if !file.team.contains_key(name) {
-        return Err(EnvkeyError::message(format!("team member not found: {name}")));
-    }
-    if name == current_admin_name {
-        return Err(EnvkeyError::message("cannot remove your own admin identity"));
-    }
+    with_envkey_lock(&envkey_path, || {
+        if !envkey_path.exists() {
+            return Err(EnvkeyError::message(
+                "missing .envkey in current directory; run `envkey init` first",
+            ));
+        }
 
-    if !yes && !confirm_member_removal(name)? {
-        return Err(EnvkeyError::message("aborted"));
-    }
+        let mut file = read_envkey(&envkey_path)?;
+        let current_admin_name = require_admin_identity(&file, &identity_bundle.identity)?;
 
-    file.team.remove(name);
+        if !file.team.contains_key(name) {
+            return Err(EnvkeyError::message(format!("team member not found: {name}")));
+        }
+        if name == current_admin_name {
+            return Err(EnvkeyError::message("cannot remove your own admin identity"));
+        }
 
-    let reencrypted = reencrypt_all_secrets(&mut file, &identity_bundle.identity)?;
-    write_envkey_atomic(&envkey_path, &file)?;
+        if !yes && !confirm_member_removal(name)? {
+            return Err(EnvkeyError::message("aborted"));
+        }
+
+        file.team.remove(name);
+
+        reencrypted = reencrypt_all_secrets(&mut file, &identity_bundle.identity)?;
+        write_envkey_atomic(&envkey_path, &file)?;
+        Ok(())
+    })?;
 
     println!(
         "✓ Removed {} — re-encrypted {} secret{} in default",

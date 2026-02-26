@@ -1,6 +1,7 @@
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 
+use fs2::FileExt;
 use rand::distr::Alphanumeric;
 use rand::{Rng, rng};
 
@@ -45,6 +46,29 @@ pub fn write_envkey_atomic(path: &Path, file: &EnvkeyFile) -> Result<()> {
     })?;
 
     Ok(())
+}
+
+pub fn with_envkey_lock<T>(path: &Path, action: impl FnOnce() -> Result<T>) -> Result<T> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| EnvkeyError::message(".envkey path has no parent directory"))?;
+    fs::create_dir_all(parent)?;
+    let lock_path = parent.join(format!("{ENVKEY_FILE_NAME}.lock"));
+
+    let lock_file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(&lock_path)
+        .map_err(|err| {
+            EnvkeyError::message(format!("failed to open lock file {}: {err}", lock_path.display()))
+        })?;
+    lock_file.lock_exclusive().map_err(|err| {
+        EnvkeyError::message(format!("failed to acquire lock {}: {err}", lock_path.display()))
+    })?;
+
+    action()
 }
 
 #[cfg(test)]
