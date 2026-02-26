@@ -1,0 +1,8 @@
+/target
+
+# Local env files (do not commit plaintext secrets)
+.env
+.env.*
+
+# macOS
+.DS_Store
