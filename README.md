@@ -93,7 +93,7 @@ envkey --identity ~/.envkey/bob.age get DATABASE_URL
 
 ## Current status
 
-Maturity: **M1 implemented; M2+ planned**.
+Maturity: **M1 implemented + M2 member management slice**.
 
 Implemented now:
 
@@ -101,14 +101,35 @@ Implemented now:
 - `envkey set <KEY> <VALUE>`
 - `envkey get <KEY>`
 - `envkey ls`
+- `envkey member add <NAME> <PUBKEY> [--role <admin|member|ci|readonly>]`
+- `envkey member rm <NAME> [--yes]`
+- `envkey member ls`
 - `.envkey` YAML schema with age-encrypted values
 
 Planned next:
 
-- Team member management (`member add/rm/ls`)
 - Multi-environment access control
 - Secret injection (`run`, `export`)
 - Rotation and audit workflows
+
+### Team member commands (M2 slice)
+
+```bash
+# add a member (default role: member)
+envkey member add bob age1...
+
+# add with explicit role
+envkey member add ci-bot age1... --role ci
+
+# list members
+envkey member ls
+
+# remove member (interactive confirm)
+envkey member rm bob
+
+# remove without prompt
+envkey member rm bob --yes
+```
 
 ## Security model (what this protects)
 

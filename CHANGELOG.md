@@ -21,6 +21,12 @@ Semantic Versioning.
 - Interactive `init` prompt support for custom identity location.
 - Tilde expansion for identity path input (for example `~/.envkey2/identity.age`).
 - Backward-compatible identity lookup fallback to legacy config-dir location.
+- Team member management commands:
+  - `envkey member add <NAME> <PUBKEY> [--role <admin|member|ci|readonly>]`
+  - `envkey member rm <NAME> [--yes]`
+  - `envkey member ls`
+- Identity-based admin authorization for member add/remove.
+- Membership change re-encryption of stored secrets with atomic persistence.
 - Release Please automation configuration:
   - `.github/workflows/release-please.yml`
   - `release-please-config.json`
@@ -28,7 +34,7 @@ Semantic Versioning.
 
 ### Planned
 
-- Planned M2+ work: team management, multi-environment access controls,
+- Planned M2+ work: multi-environment access controls,
   injection workflows (`run`/`export`), and rotation commands.
 
 ## [0.1.0-beta.1] - 2026-02-26
