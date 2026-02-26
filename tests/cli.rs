@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
@@ -18,6 +19,18 @@ fn identity_path(temp: &TempDir) -> PathBuf {
 fn cmd_in(temp: &TempDir) -> Command {
     let mut cmd = cargo_bin_cmd!("envkey");
     cmd.current_dir(temp.path()).env("ENVKEY_IDENTITY", identity_path(temp)).env("USER", "alice");
+    cmd
+}
+
+fn cmd_no_identity(temp: &TempDir, home: &Path, user: &str) -> Command {
+    let mut cmd = cargo_bin_cmd!("envkey");
+    cmd.current_dir(temp.path()).env_remove("ENVKEY_IDENTITY").env("HOME", home).env("USER", user);
+    cmd
+}
+
+fn cmd_with_global_identity(temp: &TempDir, identity: &Path, user: &str) -> Command {
+    let mut cmd = cargo_bin_cmd!("envkey");
+    cmd.current_dir(temp.path()).env("USER", user).arg("--identity").arg(identity);
     cmd
 }
 
@@ -66,6 +79,139 @@ fn init_is_idempotent() {
         .success()
         .stdout(predicate::str::contains("Using existing identity key"))
         .stdout(predicate::str::contains(".envkey already exists"));
+}
+
+#[test]
+fn init_without_override_uses_home_dot_envkey_identity() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let home = temp.path().join("home");
+    fs::create_dir_all(&home).expect("mkdir home");
+
+    cmd_no_identity(&temp, &home, "alice").args(["init"]).assert().success();
+
+    assert!(home.join(".envkey").join("identity.age").exists());
+}
+
+#[test]
+fn init_global_identity_flag_creates_identity_at_exact_location() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let home = temp.path().join("home");
+    fs::create_dir_all(&home).expect("mkdir home");
+
+    let custom = temp.path().join("ids").join("alice.age");
+    cmd_no_identity(&temp, &home, "alice")
+        .arg("--identity")
+        .arg(&custom)
+        .arg("init")
+        .assert()
+        .success();
+
+    assert!(custom.exists());
+    assert!(!home.join(".envkey").join("identity.age").exists());
+}
+
+#[test]
+fn init_global_identity_rejects_directory() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let home = temp.path().join("home");
+    fs::create_dir_all(&home).expect("mkdir home");
+    let identity_dir = temp.path().join("ids");
+    fs::create_dir_all(&identity_dir).expect("mkdir ids");
+
+    cmd_no_identity(&temp, &home, "alice")
+        .arg("--identity")
+        .arg(&identity_dir)
+        .arg("init")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("identity path must be a file path, got directory"));
+}
+
+#[test]
+fn init_prompt_expands_tilde_path_input() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let home = temp.path().join("home");
+    fs::create_dir_all(&home).expect("mkdir home");
+    let expected = home.join(".envkey2").join("identity.age");
+
+    cmd_no_identity(&temp, &home, "alice")
+        .env("ENVKEY_INIT_PROMPT", "1")
+        .args(["init"])
+        .write_stdin("~/.envkey2/identity.age\n")
+        .assert()
+        .success();
+
+    assert!(expected.exists());
+}
+
+#[test]
+fn non_init_commands_fallback_to_legacy_identity_path() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let home = temp.path().join("home");
+    fs::create_dir_all(&home).expect("mkdir home");
+    let legacy = legacy_identity_path_for_home(&home);
+    fs::create_dir_all(legacy.parent().expect("legacy parent")).expect("mkdir legacy parent");
+
+    cmd_no_identity(&temp, &home, "alice")
+        .env("ENVKEY_IDENTITY", &legacy)
+        .args(["init"])
+        .assert()
+        .success();
+    cmd_no_identity(&temp, &home, "alice")
+        .env("ENVKEY_IDENTITY", &legacy)
+        .args(["set", "API_KEY", "legacy-secret"])
+        .assert()
+        .success();
+
+    assert!(!home.join(".envkey").join("identity.age").exists());
+    assert!(legacy.exists());
+
+    cmd_no_identity(&temp, &home, "alice")
+        .args(["get", "API_KEY"])
+        .assert()
+        .success()
+        .stdout("legacy-secret\n");
+}
+
+fn legacy_identity_path_for_home(home: &Path) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        home.join("Library").join("Application Support").join("envkey").join("identity.age")
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        home.join(".config").join("envkey").join("identity.age")
+    }
+}
+
+#[test]
+fn global_identity_flag_overrides_envkey_identity() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let good_identity = temp.path().join("good.age");
+    let bad_identity = temp.path().join("bad.age");
+
+    let good = age::x25519::Identity::generate().to_string();
+    let bad = age::x25519::Identity::generate().to_string();
+    fs::write(&good_identity, format!("{}\n", good.expose_secret())).expect("write good key");
+    fs::write(&bad_identity, format!("{}\n", bad.expose_secret())).expect("write bad key");
+
+    cmd_with_global_identity(&temp, &good_identity, "alice").args(["init"]).assert().success();
+    cmd_with_global_identity(&temp, &good_identity, "alice")
+        .args(["set", "API_KEY", "flag-wins"])
+        .assert()
+        .success();
+
+    let mut cmd = cargo_bin_cmd!("envkey");
+    cmd.current_dir(temp.path())
+        .env("USER", "alice")
+        .env("ENVKEY_IDENTITY", &bad_identity)
+        .arg("--identity")
+        .arg(&good_identity)
+        .args(["get", "API_KEY"])
+        .assert()
+        .success()
+        .stdout("flag-wins\n");
 }
 
 #[test]

@@ -42,6 +42,9 @@ cargo install --path .
 # initialize local identity and project .envkey
 envkey init
 
+# optionally select identity file for this invocation
+envkey --identity ~/.envkey/alice.age init
+
 # set and retrieve a secret
 envkey set DATABASE_URL "postgres://user:pass@localhost:5432/app"
 envkey get DATABASE_URL
@@ -68,6 +71,24 @@ envkey --help
 ```bash
 cargo build --release
 ./target/release/envkey --help
+```
+
+## Identity file location
+
+- Default identity file: `~/.envkey/identity.age`
+- Global CLI override: `envkey --identity /path/to/identity.age ...`
+- Environment override (still supported): `ENVKEY_IDENTITY=/path/to/identity.age`
+- Compatibility fallback: if default is missing, envkey checks legacy config
+  location (`$XDG_CONFIG_HOME/envkey/identity.age` or platform equivalent).
+
+### Multi-identity local testing
+
+```bash
+envkey --identity ~/.envkey/alice.age init
+envkey --identity ~/.envkey/alice.age get DATABASE_URL
+
+envkey --identity ~/.envkey/bob.age init
+envkey --identity ~/.envkey/bob.age get DATABASE_URL
 ```
 
 ## Current status

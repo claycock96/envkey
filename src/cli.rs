@@ -1,4 +1,6 @@
 use std::env;
+use std::io::{self, IsTerminal, Write};
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use age::x25519;
@@ -9,7 +11,8 @@ use secrecy::{ExposeSecret, SecretString};
 use crate::crypto::{decrypt_value, encrypt_value};
 use crate::error::{EnvkeyError, Result};
 use crate::identity::{
-    detect_username, identity_path, load_identity_from, load_or_generate_identity,
+    default_identity_path, detect_username, expand_home_prefix, load_identity_from,
+    load_or_generate_identity, resolve_identity_path,
 };
 use crate::model::{EnvkeyFile, SecretEntry, TeamMember};
 use crate::storage::{envkey_path, read_envkey, write_envkey_atomic};
@@ -17,6 +20,9 @@ use crate::storage::{envkey_path, read_envkey, write_envkey_atomic};
 #[derive(Debug, Parser)]
 #[command(name = "envkey", version, about = "Secrets without servers")]
 pub struct Cli {
+    /// Identity key file to use for this command
+    #[arg(long, global = true)]
+    identity: Option<PathBuf>,
     #[command(subcommand)]
     command: Commands,
 }
@@ -51,16 +57,17 @@ enum Commands {
 
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
+    let identity_override = cli.identity.as_deref();
 
     match cli.command {
-        Commands::Init { force } => cmd_init(force),
-        Commands::Set { env, key, value } => cmd_set(&env, &key, value),
-        Commands::Get { env, key } => cmd_get(&env, &key),
+        Commands::Init { force } => cmd_init(force, identity_override),
+        Commands::Set { env, key, value } => cmd_set(&env, &key, value, identity_override),
+        Commands::Get { env, key } => cmd_get(&env, &key, identity_override),
         Commands::Ls { env } => cmd_ls(&env),
     }
 }
 
-fn cmd_init(force: bool) -> Result<()> {
+fn cmd_init(force: bool, identity_override: Option<&Path>) -> Result<()> {
     let cwd = env::current_dir()?;
     let envkey_path = envkey_path(&cwd);
 
@@ -70,7 +77,7 @@ fn cmd_init(force: bool) -> Result<()> {
         ));
     }
 
-    let identity_path = identity_path()?;
+    let identity_path = resolve_init_identity_path(identity_override)?;
     let (bundle, generated_identity) = load_or_generate_identity(&identity_path, force)?;
     let username = detect_username();
 
@@ -107,7 +114,12 @@ fn cmd_init(force: bool) -> Result<()> {
     Ok(())
 }
 
-fn cmd_set(env_name: &str, key: &str, value: String) -> Result<()> {
+fn cmd_set(
+    env_name: &str,
+    key: &str,
+    value: String,
+    identity_override: Option<&Path>,
+) -> Result<()> {
     require_m1_env(env_name)?;
     validate_secret_key(key)?;
 
@@ -120,7 +132,7 @@ fn cmd_set(env_name: &str, key: &str, value: String) -> Result<()> {
     }
 
     let mut file = read_envkey(&envkey_path)?;
-    let identity_bundle = load_identity_from(&identity_path()?)?;
+    let identity_bundle = load_identity_from(&resolve_identity_path(identity_override)?)?;
 
     let recipients = parse_recipients_from_team(&file)?;
     if recipients.is_empty() {
@@ -156,7 +168,7 @@ fn cmd_set(env_name: &str, key: &str, value: String) -> Result<()> {
     Ok(())
 }
 
-fn cmd_get(env_name: &str, key: &str) -> Result<()> {
+fn cmd_get(env_name: &str, key: &str, identity_override: Option<&Path>) -> Result<()> {
     require_m1_env(env_name)?;
 
     let cwd = env::current_dir()?;
@@ -168,7 +180,7 @@ fn cmd_get(env_name: &str, key: &str) -> Result<()> {
     }
 
     let file = read_envkey(&envkey_path)?;
-    let identity = load_identity_from(&identity_path()?)?;
+    let identity = load_identity_from(&resolve_identity_path(identity_override)?)?;
 
     let env = file
         .default_env()
@@ -235,6 +247,60 @@ fn parse_recipients_from_team(file: &EnvkeyFile) -> Result<Vec<x25519::Recipient
             })
         })
         .collect()
+}
+
+fn resolve_init_identity_path(identity_override: Option<&Path>) -> Result<PathBuf> {
+    if let Some(path) = identity_override {
+        let path = expand_home_prefix(path)?;
+        validate_identity_file_path(&path)?;
+        return Ok(path);
+    }
+
+    if let Ok(path) = env::var("ENVKEY_IDENTITY") {
+        let path = expand_home_prefix(Path::new(&path))?;
+        validate_identity_file_path(&path)?;
+        return Ok(path);
+    }
+
+    let default = default_identity_path()?;
+    if should_prompt_for_init_identity_path() {
+        let chosen = prompt_for_identity_path(&default)?;
+        validate_identity_file_path(&chosen)?;
+        return Ok(chosen);
+    }
+
+    Ok(default)
+}
+
+fn should_prompt_for_init_identity_path() -> bool {
+    if env::var("ENVKEY_INIT_PROMPT").ok().as_deref() == Some("1") {
+        return true;
+    }
+    io::stdin().is_terminal()
+}
+
+fn prompt_for_identity_path(default_path: &Path) -> Result<PathBuf> {
+    print!("Identity file [{}]: ", default_path.display());
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Ok(default_path.to_path_buf());
+    }
+
+    expand_home_prefix(Path::new(trimmed))
+}
+
+fn validate_identity_file_path(path: &Path) -> Result<()> {
+    if path.is_dir() {
+        return Err(EnvkeyError::message(format!(
+            "identity path must be a file path, got directory: {}",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
 fn validate_secret_key(key: &str) -> Result<()> {
