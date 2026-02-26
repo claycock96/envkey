@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on Keep a Changelog and the project aims to follow
 Semantic Versioning.
 
+## [0.4.0-beta.1](https://github.com/claycock96/envkey/compare/v0.3.0-beta.1...v0.4.0-beta.1) (2026-02-26)
+
+
+### Features
+
+* add team member commands with admin auth and re-encryption ([#9](https://github.com/claycock96/envkey/issues/9)) ([28890a7](https://github.com/claycock96/envkey/commit/28890a70a381c155d383a667d7b56d43a2cb1b96))
+
 ## [0.3.0-beta.1](https://github.com/claycock96/envkey/compare/v0.2.0-beta.1...v0.3.0-beta.1) (2026-02-26)
 
 
