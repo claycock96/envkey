@@ -6,3 +6,7 @@
 
 # macOS
 .DS_Store
+
+# Private local docs (never commit)
+.private/
+envkey-design-doc.md
