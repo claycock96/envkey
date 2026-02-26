@@ -14,11 +14,15 @@ Semantic Versioning.
 - Interactive `init` prompt support for custom identity location.
 - Tilde expansion for identity path input (for example `~/.envkey2/identity.age`).
 - Backward-compatible identity lookup fallback to legacy config-dir location.
+- Release Please automation configuration:
+  - `.github/workflows/release-please.yml`
+  - `release-please-config.json`
+  - `.release-please-manifest.json`
 
 ### Planned
 
-- Team management, multi-environment access controls, injection workflows
-  (`run`/`export`), and rotation commands.
+- Planned M2+ work: team management, multi-environment access controls,
+  injection workflows (`run`/`export`), and rotation commands.
 
 ## [0.1.0-beta.1] - 2026-02-26
 

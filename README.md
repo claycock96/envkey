@@ -138,6 +138,19 @@ Includes:
 - `cargo clippy --all-targets --all-features -- -D warnings`
 - `cargo test --locked`
 
+## Release automation
+
+Releases are managed by [Release Please](https://github.com/googleapis/release-please).
+
+- On pushes to `main`, Release Please opens/updates a release PR.
+- Merging that release PR creates a `v*` tag and GitHub release.
+- The existing `.github/workflows/release.yml` then builds and uploads artifacts for Linux/macOS/Windows.
+
+Repository setup requirement:
+
+- Add a `RELEASE_PLEASE_TOKEN` repository secret (GitHub PAT with repo write permissions).
+  This allows the tag created by Release Please to trigger downstream tag workflows.
+
 ## Get involved
 
 If you want to help shape v1.0, high-impact areas are:

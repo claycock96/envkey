@@ -1,0 +1,11 @@
+{
+  "release-type": "rust",
+  "packages": {
+    ".": {
+      "package-name": "envkey",
+      "changelog-path": "CHANGELOG.md",
+      "prerelease": true,
+      "prerelease-type": "beta"
+    }
+  }
+}
