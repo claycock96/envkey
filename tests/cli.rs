@@ -149,15 +149,22 @@ fn non_init_commands_fallback_to_legacy_identity_path() {
     let temp = tempfile::tempdir().expect("tempdir");
     let home = temp.path().join("home");
     fs::create_dir_all(&home).expect("mkdir home");
-    let legacy = legacy_identity_path_for_home(&home);
+    let legacy = legacy_identity_path_for_test(&home, &temp);
     fs::create_dir_all(legacy.parent().expect("legacy parent")).expect("mkdir legacy parent");
 
-    cmd_no_identity(&temp, &home, "alice")
-        .env("ENVKEY_IDENTITY", &legacy)
-        .args(["init"])
-        .assert()
-        .success();
-    cmd_no_identity(&temp, &home, "alice")
+    let mut init_cmd = cmd_no_identity(&temp, &home, "alice");
+    #[cfg(not(target_os = "macos"))]
+    {
+        init_cmd.env("XDG_CONFIG_HOME", temp.path().join("xdg"));
+    }
+    init_cmd.env("ENVKEY_IDENTITY", &legacy).args(["init"]).assert().success();
+
+    let mut set_cmd = cmd_no_identity(&temp, &home, "alice");
+    #[cfg(not(target_os = "macos"))]
+    {
+        set_cmd.env("XDG_CONFIG_HOME", temp.path().join("xdg"));
+    }
+    set_cmd
         .env("ENVKEY_IDENTITY", &legacy)
         .args(["set", "API_KEY", "legacy-secret"])
         .assert()
@@ -166,14 +173,15 @@ fn non_init_commands_fallback_to_legacy_identity_path() {
     assert!(!home.join(".envkey").join("identity.age").exists());
     assert!(legacy.exists());
 
-    cmd_no_identity(&temp, &home, "alice")
-        .args(["get", "API_KEY"])
-        .assert()
-        .success()
-        .stdout("legacy-secret\n");
+    let mut get_cmd = cmd_no_identity(&temp, &home, "alice");
+    #[cfg(not(target_os = "macos"))]
+    {
+        get_cmd.env("XDG_CONFIG_HOME", temp.path().join("xdg"));
+    }
+    get_cmd.args(["get", "API_KEY"]).assert().success().stdout("legacy-secret\n");
 }
 
-fn legacy_identity_path_for_home(home: &Path) -> PathBuf {
+fn legacy_identity_path_for_test(home: &Path, _temp: &TempDir) -> PathBuf {
     #[cfg(target_os = "macos")]
     {
         home.join("Library").join("Application Support").join("envkey").join("identity.age")
@@ -181,7 +189,7 @@ fn legacy_identity_path_for_home(home: &Path) -> PathBuf {
 
     #[cfg(not(target_os = "macos"))]
     {
-        home.join(".config").join("envkey").join("identity.age")
+        _temp.path().join("xdg").join("envkey").join("identity.age")
     }
 }
 
