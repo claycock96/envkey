@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on Keep a Changelog and the project aims to follow
 Semantic Versioning.
 
+## [0.5.0-beta.1](https://github.com/laycockc/envkey/compare/v0.4.0-beta.1...v0.5.0-beta.1) (2026-02-27)
+
+
+### Features
+
+* add member update command and ci keygen workflow ([#15](https://github.com/laycockc/envkey/issues/15)) ([c3b84c4](https://github.com/laycockc/envkey/commit/c3b84c44f7f758a9604a6ec44be0f0ac9f66d6d4))
+
+
+### Bug Fixes
+
+* harden init membership and serialize envkey writes ([#12](https://github.com/laycockc/envkey/issues/12)) ([f21871f](https://github.com/laycockc/envkey/commit/f21871f4614aeb40bb129822cab102e37ebd746e))
+
 ## [0.4.0-beta.1](https://github.com/laycockc/envkey/compare/v0.3.0-beta.1...v0.4.0-beta.1) (2026-02-26)
 
 
@@ -42,10 +54,16 @@ Semantic Versioning.
 - Backward-compatible identity lookup fallback to legacy config-dir location.
 - Team member management commands:
   - `envkey member add <NAME> <PUBKEY> [--role <admin|member|ci|readonly>]`
+  - `envkey member update <NAME> <PUBKEY>`
+  - `envkey member role set <NAME> <ROLE>`
   - `envkey member rm <NAME> [--yes]`
   - `envkey member ls`
+- CI key generation shortcut via `envkey member add --role ci <NAME>`.
+- Self-demotion guard for admins in role changes.
+- Role changes re-encrypt stored secrets (same mutation model as add/rm/update).
 - Identity-based admin authorization for member add/remove.
 - Membership change re-encryption of stored secrets with atomic persistence.
+- README role definitions and current M2 role-scope notes.
 - Release Please automation configuration:
   - `.github/workflows/release-please.yml`
   - `release-please-config.json`
@@ -56,6 +74,7 @@ Semantic Versioning.
 
 - Planned M2+ work: multi-environment access controls,
   injection workflows (`run`/`export`), and rotation commands.
+- Environment-specific `member grant/revoke` remains deferred to M3.
 
 ## [0.1.0-beta.1] - 2026-02-26
 

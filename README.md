@@ -102,6 +102,8 @@ Implemented now:
 - `envkey get <KEY>`
 - `envkey ls`
 - `envkey member add <NAME> <PUBKEY> [--role <admin|member|ci|readonly>]`
+- `envkey member update <NAME> <PUBKEY>`
+- `envkey member role set <NAME> <ROLE>`
 - `envkey member rm <NAME> [--yes]`
 - `envkey member ls`
 - `.envkey` YAML schema with age-encrypted values
@@ -121,6 +123,15 @@ envkey member add bob age1...
 # add with explicit role
 envkey member add ci-bot age1... --role ci
 
+# add CI identity with generated keypair
+envkey member add --role ci ci-prod
+
+# rotate a member public key
+envkey member update bob age1...
+
+# change role after creation
+envkey member role set bob readonly
+
 # list members
 envkey member ls
 
@@ -129,6 +140,27 @@ envkey member rm bob
 
 # remove without prompt
 envkey member rm bob --yes
+```
+
+### Roles
+
+- `admin`: can manage team membership (`member add`, `member update`, `member rm`).
+- `member`: standard team member identity.
+- `readonly`: read-focused human identity (same decrypt behavior as member in M2).
+- `ci`: machine identity for automation; supports generated keypair via `member add --role ci <NAME>`.
+- Roles can be changed post-create with `member role set <NAME> <ROLE>`.
+
+Current M2 note:
+- All roles are currently treated as default-environment recipients.
+- Environment-scoped access control and grant/revoke behavior are deferred to M3.
+
+### CI identity setup
+
+```bash
+envkey member add --role ci ci-prod
+
+# copy the printed AGE-SECRET-KEY-... into your CI secret store as:
+# ENVKEY_IDENTITY
 ```
 
 ## Security model (what this protects)

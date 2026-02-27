@@ -507,6 +507,277 @@ fn member_add_requires_admin_identity() {
 }
 
 #[test]
+fn member_add_ci_without_pubkey_generates_keypair_and_prints_private_key() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+    cmd_in(&temp).args(["set", "API_KEY", "secret"]).assert().success();
+
+    cmd_in(&temp)
+        .args(["member", "add", "ci-prod", "--role", "ci"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Generated CI key pair"))
+        .stdout(predicate::str::contains("ENVKEY_IDENTITY"))
+        .stdout(predicate::str::contains("AGE-SECRET-KEY-"));
+
+    let file = read_envkey(&temp);
+    let ci = file.team.get("ci-prod").expect("ci member exists");
+    assert_eq!(ci.role, envkey::model::Role::Ci);
+    assert!(ci.pubkey.starts_with("age1"));
+}
+
+#[test]
+fn member_add_non_ci_without_pubkey_fails() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+
+    cmd_in(&temp)
+        .args(["member", "add", "alice2", "--role", "member"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("public key is required unless --role ci is used"));
+}
+
+#[test]
+fn member_add_ci_with_pubkey_still_supported() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+
+    let ci_identity = temp.path().join("ci.age");
+    let ci_pubkey = generate_identity_file(&ci_identity);
+
+    cmd_in(&temp)
+        .args(["member", "add", "ci-prod", &ci_pubkey, "--role", "ci"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Added ci-prod (ci)"))
+        .stdout(predicate::str::contains("Generated CI key pair").not());
+}
+
+#[test]
+fn member_update_success_reencrypts_and_new_key_decrypts() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+    cmd_in(&temp).args(["set", "API_KEY", "secret"]).assert().success();
+
+    let bob_identity = temp.path().join("bob.age");
+    let bob_pubkey = generate_identity_file(&bob_identity);
+    cmd_in(&temp).args(["member", "add", "bob", &bob_pubkey]).assert().success();
+    cmd_in_with_identity(&temp, &bob_identity, "bob")
+        .args(["get", "API_KEY"])
+        .assert()
+        .success()
+        .stdout("secret\n");
+
+    let before = read_envkey(&temp);
+    let before_value =
+        before.default_env().expect("default env").get("API_KEY").expect("api key").value.clone();
+
+    let bob_new_identity = temp.path().join("bob-new.age");
+    let bob_new_pubkey = generate_identity_file(&bob_new_identity);
+    cmd_in(&temp).args(["member", "update", "bob", &bob_new_pubkey]).assert().success();
+
+    let after = read_envkey(&temp);
+    let after_value =
+        after.default_env().expect("default env").get("API_KEY").expect("api key").value.clone();
+    assert_ne!(before_value, after_value);
+
+    cmd_in_with_identity(&temp, &bob_identity, "bob")
+        .args(["get", "API_KEY"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("failed to decrypt value"));
+    cmd_in_with_identity(&temp, &bob_new_identity, "bob")
+        .args(["get", "API_KEY"])
+        .assert()
+        .success()
+        .stdout("secret\n");
+}
+
+#[test]
+fn member_update_unknown_member_fails() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+    let some_pubkey = generate_identity_file(&temp.path().join("some.age"));
+
+    cmd_in(&temp)
+        .args(["member", "update", "missing", &some_pubkey])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("team member not found: missing"));
+}
+
+#[test]
+fn member_update_invalid_pubkey_fails() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+
+    cmd_in(&temp)
+        .args(["member", "update", "alice", "not-a-valid-pubkey"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid age public key for alice"));
+}
+
+#[test]
+fn member_update_non_admin_fails() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+    let bob_identity = temp.path().join("bob.age");
+    let bob_pubkey = generate_identity_file(&bob_identity);
+    cmd_in(&temp).args(["member", "add", "bob", &bob_pubkey]).assert().success();
+
+    let non_admin_identity = temp.path().join("non-admin.age");
+    let _ = generate_identity_file(&non_admin_identity);
+    let replacement_pubkey = generate_identity_file(&temp.path().join("replacement.age"));
+
+    cmd_in_with_identity(&temp, &non_admin_identity, "notadmin")
+        .args(["member", "update", "bob", &replacement_pubkey])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("current identity is not an admin in .envkey"));
+}
+
+#[test]
+fn member_update_same_pubkey_fails() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+    let bob_identity = temp.path().join("bob.age");
+    let bob_pubkey = generate_identity_file(&bob_identity);
+    cmd_in(&temp).args(["member", "add", "bob", &bob_pubkey]).assert().success();
+
+    cmd_in(&temp)
+        .args(["member", "update", "bob", &bob_pubkey])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("new public key matches existing key for bob"));
+}
+
+#[test]
+fn member_update_self_admin_blocked() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+    let replacement_pubkey = generate_identity_file(&temp.path().join("alice-new.age"));
+
+    cmd_in(&temp)
+        .args(["member", "update", "alice", &replacement_pubkey])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "cannot update your own admin identity in M2; add a new admin first",
+        ));
+}
+
+#[test]
+fn member_role_set_success_updates_role_and_reencrypts() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+    cmd_in(&temp).args(["set", "API_KEY", "secret"]).assert().success();
+
+    let bob_identity = temp.path().join("bob.age");
+    let bob_pubkey = generate_identity_file(&bob_identity);
+    cmd_in(&temp).args(["member", "add", "bob", &bob_pubkey]).assert().success();
+
+    let before = read_envkey(&temp);
+    let before_value =
+        before.default_env().expect("default env").get("API_KEY").expect("api key").value.clone();
+
+    cmd_in(&temp).args(["member", "role", "set", "bob", "readonly"]).assert().success();
+
+    let after = read_envkey(&temp);
+    assert_eq!(after.team.get("bob").expect("bob exists").role, envkey::model::Role::Readonly);
+    let after_value =
+        after.default_env().expect("default env").get("API_KEY").expect("api key").value.clone();
+    assert_ne!(before_value, after_value);
+}
+
+#[test]
+fn member_role_set_unknown_member_fails() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+
+    cmd_in(&temp)
+        .args(["member", "role", "set", "missing", "readonly"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("team member not found: missing"));
+}
+
+#[test]
+fn member_role_set_non_admin_fails() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+    let bob_identity = temp.path().join("bob.age");
+    let bob_pubkey = generate_identity_file(&bob_identity);
+    cmd_in(&temp).args(["member", "add", "bob", &bob_pubkey]).assert().success();
+
+    let non_admin_identity = temp.path().join("non-admin.age");
+    let _ = generate_identity_file(&non_admin_identity);
+
+    cmd_in_with_identity(&temp, &non_admin_identity, "notadmin")
+        .args(["member", "role", "set", "bob", "readonly"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("current identity is not an admin in .envkey"));
+}
+
+#[test]
+fn member_role_set_noop_fails() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+    let bob_identity = temp.path().join("bob.age");
+    let bob_pubkey = generate_identity_file(&bob_identity);
+    cmd_in(&temp).args(["member", "add", "bob", &bob_pubkey]).assert().success();
+
+    cmd_in(&temp)
+        .args(["member", "role", "set", "bob", "member"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("member bob already has role member"));
+}
+
+#[test]
+fn member_role_set_self_demotion_blocked() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+
+    cmd_in(&temp)
+        .args(["member", "role", "set", "alice", "member"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot change your own admin role in M2"));
+}
+
+#[test]
+fn member_role_set_self_admin_to_admin_is_noop_fail() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+
+    cmd_in(&temp)
+        .args(["member", "role", "set", "alice", "admin"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("member alice already has role admin"));
+}
+
+#[test]
+fn member_role_set_reflected_in_member_ls() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+    let bob_identity = temp.path().join("bob.age");
+    let bob_pubkey = generate_identity_file(&bob_identity);
+    cmd_in(&temp).args(["member", "add", "bob", &bob_pubkey]).assert().success();
+    cmd_in(&temp).args(["member", "role", "set", "bob", "readonly"]).assert().success();
+
+    cmd_in(&temp)
+        .args(["member", "ls"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bob"))
+        .stdout(predicate::str::contains("readonly"));
+}
+
+#[test]
 fn member_rm_requires_yes_or_interactive_confirmation() {
     let temp = tempfile::tempdir().expect("tempdir");
     run_init(&temp);
