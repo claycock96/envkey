@@ -71,6 +71,11 @@ enum MemberCommands {
     },
     /// Update a team member public key and re-encrypt secrets
     Update { name: String, pubkey: String },
+    /// Manage team member roles
+    Role {
+        #[command(subcommand)]
+        command: MemberRoleCommands,
+    },
     /// Remove a team member and re-encrypt secrets without that recipient
     Rm {
         name: String,
@@ -79,6 +84,16 @@ enum MemberCommands {
     },
     /// List team members
     Ls,
+}
+
+#[derive(Debug, Subcommand)]
+enum MemberRoleCommands {
+    /// Set a member role
+    Set {
+        name: String,
+        #[arg(value_enum)]
+        role: MemberRoleArg,
+    },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -121,8 +136,17 @@ fn cmd_member(command: MemberCommands, identity_override: Option<&Path>) -> Resu
         MemberCommands::Update { name, pubkey } => {
             cmd_member_update(&name, &pubkey, identity_override)
         }
+        MemberCommands::Role { command } => cmd_member_role(command, identity_override),
         MemberCommands::Rm { name, yes } => cmd_member_rm(&name, yes, identity_override),
         MemberCommands::Ls => cmd_member_ls(),
+    }
+}
+
+fn cmd_member_role(command: MemberRoleCommands, identity_override: Option<&Path>) -> Result<()> {
+    match command {
+        MemberRoleCommands::Set { name, role } => {
+            cmd_member_role_set(&name, role.into(), identity_override)
+        }
     }
 }
 
@@ -434,6 +458,54 @@ fn cmd_member_rm(name: &str, yes: bool, identity_override: Option<&Path>) -> Res
     println!(
         "✓ Removed {} — re-encrypted {} secret{} in default",
         name,
+        reencrypted,
+        if reencrypted == 1 { "" } else { "s" }
+    );
+    Ok(())
+}
+
+fn cmd_member_role_set(name: &str, role: Role, identity_override: Option<&Path>) -> Result<()> {
+    let cwd = env::current_dir()?;
+    let envkey_path = envkey_path(&cwd);
+    let identity_bundle = load_identity_from(&resolve_identity_path(identity_override)?)?;
+    let mut reencrypted = 0usize;
+    let new_role_text = role_label(&role);
+
+    with_envkey_lock(&envkey_path, || {
+        if !envkey_path.exists() {
+            return Err(EnvkeyError::message(
+                "missing .envkey in current directory; run `envkey init` first",
+            ));
+        }
+
+        let mut file = read_envkey(&envkey_path)?;
+        let current_admin_name = require_admin_identity(&file, &identity_bundle.identity)?;
+
+        if name == current_admin_name && role != Role::Admin {
+            return Err(EnvkeyError::message("cannot change your own admin role in M2"));
+        }
+
+        let member = file
+            .team
+            .get_mut(name)
+            .ok_or_else(|| EnvkeyError::message(format!("team member not found: {name}")))?;
+        let current_role_text = role_label(&member.role);
+        if member.role == role {
+            return Err(EnvkeyError::message(format!(
+                "member {name} already has role {current_role_text}"
+            )));
+        }
+        member.role = role.clone();
+
+        reencrypted = reencrypt_all_secrets(&mut file, &identity_bundle.identity)?;
+        write_envkey_atomic(&envkey_path, &file)?;
+        Ok(())
+    })?;
+
+    println!(
+        "✓ Updated {} role to {} — re-encrypted {} secret{} in default",
+        name,
+        new_role_text,
         reencrypted,
         if reencrypted == 1 { "" } else { "s" }
     );

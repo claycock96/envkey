@@ -103,6 +103,7 @@ Implemented now:
 - `envkey ls`
 - `envkey member add <NAME> <PUBKEY> [--role <admin|member|ci|readonly>]`
 - `envkey member update <NAME> <PUBKEY>`
+- `envkey member role set <NAME> <ROLE>`
 - `envkey member rm <NAME> [--yes]`
 - `envkey member ls`
 - `.envkey` YAML schema with age-encrypted values
@@ -128,6 +129,9 @@ envkey member add --role ci ci-prod
 # rotate a member public key
 envkey member update bob age1...
 
+# change role after creation
+envkey member role set bob readonly
+
 # list members
 envkey member ls
 
@@ -144,6 +148,7 @@ envkey member rm bob --yes
 - `member`: standard team member identity.
 - `readonly`: read-focused human identity (same decrypt behavior as member in M2).
 - `ci`: machine identity for automation; supports generated keypair via `member add --role ci <NAME>`.
+- Roles can be changed post-create with `member role set <NAME> <ROLE>`.
 
 Current M2 note:
 - All roles are currently treated as default-environment recipients.

@@ -43,9 +43,12 @@ Semantic Versioning.
 - Team member management commands:
   - `envkey member add <NAME> <PUBKEY> [--role <admin|member|ci|readonly>]`
   - `envkey member update <NAME> <PUBKEY>`
+  - `envkey member role set <NAME> <ROLE>`
   - `envkey member rm <NAME> [--yes]`
   - `envkey member ls`
 - CI key generation shortcut via `envkey member add --role ci <NAME>`.
+- Self-demotion guard for admins in role changes.
+- Role changes re-encrypt stored secrets (same mutation model as add/rm/update).
 - Identity-based admin authorization for member add/remove.
 - Membership change re-encryption of stored secrets with atomic persistence.
 - README role definitions and current M2 role-scope notes.

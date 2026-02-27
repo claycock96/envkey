@@ -669,6 +669,115 @@ fn member_update_self_admin_blocked() {
 }
 
 #[test]
+fn member_role_set_success_updates_role_and_reencrypts() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+    cmd_in(&temp).args(["set", "API_KEY", "secret"]).assert().success();
+
+    let bob_identity = temp.path().join("bob.age");
+    let bob_pubkey = generate_identity_file(&bob_identity);
+    cmd_in(&temp).args(["member", "add", "bob", &bob_pubkey]).assert().success();
+
+    let before = read_envkey(&temp);
+    let before_value =
+        before.default_env().expect("default env").get("API_KEY").expect("api key").value.clone();
+
+    cmd_in(&temp).args(["member", "role", "set", "bob", "readonly"]).assert().success();
+
+    let after = read_envkey(&temp);
+    assert_eq!(after.team.get("bob").expect("bob exists").role, envkey::model::Role::Readonly);
+    let after_value =
+        after.default_env().expect("default env").get("API_KEY").expect("api key").value.clone();
+    assert_ne!(before_value, after_value);
+}
+
+#[test]
+fn member_role_set_unknown_member_fails() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+
+    cmd_in(&temp)
+        .args(["member", "role", "set", "missing", "readonly"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("team member not found: missing"));
+}
+
+#[test]
+fn member_role_set_non_admin_fails() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+    let bob_identity = temp.path().join("bob.age");
+    let bob_pubkey = generate_identity_file(&bob_identity);
+    cmd_in(&temp).args(["member", "add", "bob", &bob_pubkey]).assert().success();
+
+    let non_admin_identity = temp.path().join("non-admin.age");
+    let _ = generate_identity_file(&non_admin_identity);
+
+    cmd_in_with_identity(&temp, &non_admin_identity, "notadmin")
+        .args(["member", "role", "set", "bob", "readonly"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("current identity is not an admin in .envkey"));
+}
+
+#[test]
+fn member_role_set_noop_fails() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+    let bob_identity = temp.path().join("bob.age");
+    let bob_pubkey = generate_identity_file(&bob_identity);
+    cmd_in(&temp).args(["member", "add", "bob", &bob_pubkey]).assert().success();
+
+    cmd_in(&temp)
+        .args(["member", "role", "set", "bob", "member"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("member bob already has role member"));
+}
+
+#[test]
+fn member_role_set_self_demotion_blocked() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+
+    cmd_in(&temp)
+        .args(["member", "role", "set", "alice", "member"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot change your own admin role in M2"));
+}
+
+#[test]
+fn member_role_set_self_admin_to_admin_is_noop_fail() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+
+    cmd_in(&temp)
+        .args(["member", "role", "set", "alice", "admin"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("member alice already has role admin"));
+}
+
+#[test]
+fn member_role_set_reflected_in_member_ls() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    run_init(&temp);
+    let bob_identity = temp.path().join("bob.age");
+    let bob_pubkey = generate_identity_file(&bob_identity);
+    cmd_in(&temp).args(["member", "add", "bob", &bob_pubkey]).assert().success();
+    cmd_in(&temp).args(["member", "role", "set", "bob", "readonly"]).assert().success();
+
+    cmd_in(&temp)
+        .args(["member", "ls"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bob"))
+        .stdout(predicate::str::contains("readonly"));
+}
+
+#[test]
 fn member_rm_requires_yes_or_interactive_confirmation() {
     let temp = tempfile::tempdir().expect("tempdir");
     run_init(&temp);
