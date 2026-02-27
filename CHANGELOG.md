@@ -42,10 +42,13 @@ Semantic Versioning.
 - Backward-compatible identity lookup fallback to legacy config-dir location.
 - Team member management commands:
   - `envkey member add <NAME> <PUBKEY> [--role <admin|member|ci|readonly>]`
+  - `envkey member update <NAME> <PUBKEY>`
   - `envkey member rm <NAME> [--yes]`
   - `envkey member ls`
+- CI key generation shortcut via `envkey member add --role ci <NAME>`.
 - Identity-based admin authorization for member add/remove.
 - Membership change re-encryption of stored secrets with atomic persistence.
+- README role definitions and current M2 role-scope notes.
 - Release Please automation configuration:
   - `.github/workflows/release-please.yml`
   - `release-please-config.json`
@@ -56,6 +59,7 @@ Semantic Versioning.
 
 - Planned M2+ work: multi-environment access controls,
   injection workflows (`run`/`export`), and rotation commands.
+- Environment-specific `member grant/revoke` remains deferred to M3.
 
 ## [0.1.0-beta.1] - 2026-02-26
 

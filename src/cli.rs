@@ -65,10 +65,12 @@ enum MemberCommands {
     /// Add a team member and re-encrypt secrets for new recipients
     Add {
         name: String,
-        pubkey: String,
+        pubkey: Option<String>,
         #[arg(long, value_enum, default_value_t = MemberRoleArg::Member)]
         role: MemberRoleArg,
     },
+    /// Update a team member public key and re-encrypt secrets
+    Update { name: String, pubkey: String },
     /// Remove a team member and re-encrypt secrets without that recipient
     Rm {
         name: String,
@@ -114,7 +116,10 @@ pub fn run() -> Result<()> {
 fn cmd_member(command: MemberCommands, identity_override: Option<&Path>) -> Result<()> {
     match command {
         MemberCommands::Add { name, pubkey, role } => {
-            cmd_member_add(&name, &pubkey, role.into(), identity_override)
+            cmd_member_add(&name, pubkey.as_deref(), role.into(), identity_override)
+        }
+        MemberCommands::Update { name, pubkey } => {
+            cmd_member_update(&name, &pubkey, identity_override)
         }
         MemberCommands::Rm { name, yes } => cmd_member_rm(&name, yes, identity_override),
         MemberCommands::Ls => cmd_member_ls(),
@@ -288,15 +293,14 @@ fn cmd_ls(env_name: &str) -> Result<()> {
 
 fn cmd_member_add(
     name: &str,
-    pubkey: &str,
+    pubkey: Option<&str>,
     role: Role,
     identity_override: Option<&Path>,
 ) -> Result<()> {
     let cwd = env::current_dir()?;
     let envkey_path = envkey_path(&cwd);
     let identity_bundle = load_identity_from(&resolve_identity_path(identity_override)?)?;
-    let recipient = x25519::Recipient::from_str(pubkey)
-        .map_err(|err| EnvkeyError::message(format!("invalid age public key for {name}: {err}")))?;
+    let (recipient, ci_private_key) = resolve_member_add_recipient(name, pubkey, &role)?;
     let mut reencrypted = 0usize;
 
     let role_text = role_label(&role);
@@ -333,6 +337,60 @@ fn cmd_member_add(
         "✓ Added {} ({}) — re-encrypted {} secret{} in default",
         name,
         role_text,
+        reencrypted,
+        if reencrypted == 1 { "" } else { "s" }
+    );
+    if let Some(private_key) = ci_private_key {
+        println!("✓ Generated CI key pair");
+        println!("✓ Private key (add this to your CI secrets as ENVKEY_IDENTITY):");
+        println!("{private_key}");
+    }
+    Ok(())
+}
+
+fn cmd_member_update(name: &str, pubkey: &str, identity_override: Option<&Path>) -> Result<()> {
+    let cwd = env::current_dir()?;
+    let envkey_path = envkey_path(&cwd);
+    let identity_bundle = load_identity_from(&resolve_identity_path(identity_override)?)?;
+    let recipient = x25519::Recipient::from_str(pubkey)
+        .map_err(|err| EnvkeyError::message(format!("invalid age public key for {name}: {err}")))?;
+    let mut reencrypted = 0usize;
+
+    with_envkey_lock(&envkey_path, || {
+        if !envkey_path.exists() {
+            return Err(EnvkeyError::message(
+                "missing .envkey in current directory; run `envkey init` first",
+            ));
+        }
+
+        let mut file = read_envkey(&envkey_path)?;
+        let current_admin_name = require_admin_identity(&file, &identity_bundle.identity)?;
+
+        if name == current_admin_name {
+            return Err(EnvkeyError::message(
+                "cannot update your own admin identity in M2; add a new admin first",
+            ));
+        }
+
+        let member = file
+            .team
+            .get_mut(name)
+            .ok_or_else(|| EnvkeyError::message(format!("team member not found: {name}")))?;
+        if member.pubkey == recipient.to_string() {
+            return Err(EnvkeyError::message(format!(
+                "new public key matches existing key for {name}"
+            )));
+        }
+        member.pubkey = recipient.to_string();
+
+        reencrypted = reencrypt_all_secrets(&mut file, &identity_bundle.identity)?;
+        write_envkey_atomic(&envkey_path, &file)?;
+        Ok(())
+    })?;
+
+    println!(
+        "✓ Updated {} public key — re-encrypted {} secret{} in default",
+        name,
         reencrypted,
         if reencrypted == 1 { "" } else { "s" }
     );
@@ -490,6 +548,27 @@ fn role_label(role: &Role) -> &'static str {
         Role::Ci => "ci",
         Role::Readonly => "readonly",
     }
+}
+
+fn resolve_member_add_recipient(
+    name: &str,
+    pubkey: Option<&str>,
+    role: &Role,
+) -> Result<(x25519::Recipient, Option<String>)> {
+    if let Some(pubkey) = pubkey {
+        let recipient = x25519::Recipient::from_str(pubkey).map_err(|err| {
+            EnvkeyError::message(format!("invalid age public key for {name}: {err}"))
+        })?;
+        return Ok((recipient, None));
+    }
+
+    if *role != Role::Ci {
+        return Err(EnvkeyError::message("public key is required unless --role ci is used"));
+    }
+
+    let identity = x25519::Identity::generate();
+    let private_key = identity.to_string().expose_secret().to_string();
+    Ok((identity.to_public(), Some(private_key)))
 }
 
 fn resolve_init_identity_path(identity_override: Option<&Path>) -> Result<PathBuf> {
