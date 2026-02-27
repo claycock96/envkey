@@ -1,7 +1,7 @@
 # envkey
 
-[![CI](https://github.com/claycock96/envkey/actions/workflows/ci.yml/badge.svg)](https://github.com/claycock96/envkey/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/claycock96/envkey?display_name=tag)](https://github.com/claycock96/envkey/releases)
+[![CI](https://github.com/laycockc/envkey/actions/workflows/ci.yml/badge.svg)](https://github.com/laycockc/envkey/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/laycockc/envkey?display_name=tag)](https://github.com/laycockc/envkey/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Rust](https://img.shields.io/badge/rust-stable-brightgreen)](https://www.rust-lang.org/)
 
